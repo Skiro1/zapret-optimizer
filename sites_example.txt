@@ -1,0 +1,17 @@
+# Example custom sites file for zapret-optimizer
+# Format: Key = "URL" or Key = "PING:host"
+# Lines starting with # are ignored
+
+# Russian sites
+Yandex = "https://ya.ru"
+VK = "https://vk.com"
+RuTube = "https://rutube.ru"
+
+# International
+GitHub = "https://github.com"
+StackOverflow = "https://stackoverflow.com"
+Reddit = "https://reddit.com"
+
+# For ping tests
+GoogleDNS = "PING:8.8.8.8"
+CloudflareDNS = "PING:1.1.1.1"

@@ -116,10 +116,17 @@ class OptimizerState:
         self.save()
 
     def get_all_configs_sorted(self) -> list[dict]:
-        """Get all configs sorted by score descending."""
+        """Get all configs sorted by score descending, then by avg_response ascending."""
+        def sort_key(config):
+            score = config.get("score", 0)
+            # Lower avg_response is better, so negate it for descending sort
+            # Use infinity as default so configs without avg_response go last
+            avg_response = config.get("details", {}).get("avg_response", float('inf'))
+            return (score, -avg_response)  # Negative for descending
+
         return sorted(
             self._data.get("all_configs", []),
-            key=lambda x: x.get("score", 0),
+            key=sort_key,
             reverse=True
         )
 

@@ -6,7 +6,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
-from .utils import stop_winws, load_targets_from_file, get_default_targets
+from .utils import stop_winws, load_targets_from_file, get_default_targets, load_targets_from_zapret_lists
 
 
 @dataclass
@@ -23,18 +23,42 @@ class TestResult:
 class ConfigTester:
     """Tests zapret configurations by running them and making HTTP/ping checks."""
 
-    def __init__(self, zapret_dir: Path, timeout: int = 5, wait_after_start: int = 5):
+    def __init__(self, zapret_dir: Path, timeout: int = 5, wait_after_start: int = 5, sites_file: Path | None = None):
         self.zapret_dir = zapret_dir
         self.timeout = timeout
         self.wait_after_start = wait_after_start
+        self.sites_file = sites_file
         self.targets = self._load_targets()
 
     def _load_targets(self) -> dict[str, str]:
-        """Load test targets."""
+        """Load test targets with priority:
+        1. Custom sites file (if provided)
+        2. Zapret list files (list-general.txt, etc.)
+        3. Zapret's targets.txt
+        4. Built-in defaults
+        """
+        # First priority: custom sites file
+        if self.sites_file and self.sites_file.exists():
+            targets = load_targets_from_file(self.zapret_dir, self.sites_file)
+            if targets:
+                print(f"[INFO] Using custom sites file: {self.sites_file}")
+                return targets
+
+        # Second priority: zapret list files
+        targets = load_targets_from_zapret_lists(self.zapret_dir)
+        if targets:
+            print(f"[INFO] Using zapret list-general.txt ({len(targets)} domains)")
+            return targets
+
+        # Third priority: zapret's targets.txt
         targets = load_targets_from_file(self.zapret_dir)
-        if not targets:
-            targets = get_default_targets()
-        return targets
+        if targets:
+            print(f"[INFO] Using zapret targets.txt")
+            return targets
+
+        # Fallback to built-in defaults
+        print(f"[INFO] Using built-in default targets")
+        return get_default_targets()
 
     def _test_url(self, url: str) -> dict[str, Any]:
         """Test a single URL with HTTP/1.1, TLS 1.2, and TLS 1.3."""
@@ -91,12 +115,60 @@ class ConfigTester:
 
         return results
 
+    def _test_speed(self, url: str = "https://speed.cloudflare.com/__down?bytes=1000000") -> dict[str, Any]:
+        """Test download speed from a URL (downloads ~1MB test file)."""
+        result = {
+            "success": False,
+            "speed_mbps": 0,
+            "time_ms": 0,
+            "bytes_downloaded": 0,
+        }
+
+        try:
+            start_time = time.time()
+            speed_result = subprocess.run(
+                [
+                    "curl.exe",
+                    "-o", "NUL",  # Discard output
+                    "-w", "%{size_download}\t%{time_total}",
+                    "-L",  # Follow redirects
+                    "-s",  # Silent
+                    "-m", str(self.timeout * 2),  # Longer timeout for download
+                    url,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=self.timeout * 2 + 5
+            )
+            elapsed = time.time() - start_time
+
+            if speed_result.returncode == 0:
+                output = speed_result.stdout.strip()
+                if "\t" in output:
+                    bytes_str, time_str = output.split("\t")
+                    bytes_downloaded = int(bytes_str) if bytes_str.isdigit() else 0
+                    download_time = float(time_str) if time_str else elapsed
+
+                    if bytes_downloaded > 0 and download_time > 0:
+                        speed_mbps = (bytes_downloaded * 8) / (download_time * 1000000)
+                        result["success"] = True
+                        result["speed_mbps"] = round(speed_mbps, 2)
+                        result["time_ms"] = round(download_time * 1000, 0)
+                        result["bytes_downloaded"] = bytes_downloaded
+
+        except Exception as e:
+            result["error"] = str(e)
+
+        return result
+
     def _test_ping(self, host: str) -> dict[str, Any]:
         """Test ping to a host."""
         result = {
             "success": False,
             "avg_ms": 0,
-            "lost": 0,
+            "min_ms": 0,
+            "max_ms": 0,
+            "loss_percent": 100,
         }
 
         try:
@@ -215,6 +287,10 @@ class ConfigTester:
                 ) / 3
                 all_details[target_name] = url_results
 
+        # Run speed test
+        speed_result = self._test_speed()
+        all_details["download_speed"] = speed_result
+
         # Calculate score (percentage of successful tests)
         score = (passed_tests / total_tests * 100) if total_tests > 0 else 0
 
@@ -228,7 +304,8 @@ class ConfigTester:
         speed_penalty = min(5, avg_response / 200)
         adjusted_score = max(0, score - speed_penalty)
 
-        print(f"    Score: {adjusted_score:.1f} ({passed_tests}/{total_tests} tests, avg {avg_response:.0f}ms)")
+        speed_str = f"{speed_result['speed_mbps']:.1f} Mbps" if speed_result['success'] else "N/A"
+        print(f"    Score: {adjusted_score:.1f} ({passed_tests}/{total_tests} tests, avg {avg_response:.0f}ms, speed: {speed_str})")
 
         # Cleanup
         stop_winws()

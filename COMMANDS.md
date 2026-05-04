@@ -45,11 +45,25 @@ zapret-optimizer.exe init
 2. **Цикл 2**: Мутация лучших (изменение параметров)
 3. **Цикл 3**: Комбинирование лучших из разных стратегий
 
-**Результат:** `results.json` с рейтингом всех протестированных конфигураций.
+**Автоматические улучшения:**
+- Использует домены из `zapret/lists/list-general.txt` (если найден)
+- Тестирует скорость скачивания (~1MB с Cloudflare)
+- При равном score выбирает конфиг с меньшим пингом
 
-**Пример:**
+**Параметры:**
+| Параметр | Описание |
+|----------|----------|
+| `--sites-file <файл>` | Кастомный список сайтов для тестирования |
+
+**Результат:** `optimizer_state.json` с рейтингом всех протестированных конфигураций.
+
+**Примеры:**
 ```cmd
+:: Стандартная оптимизация
 zapret-optimizer.exe optimize
+
+:: С кастомным списком сайтов
+zapret-optimizer.exe optimize --sites-file my_sites.txt
 ```
 
 ---
@@ -87,6 +101,21 @@ zapret-optimizer.exe status
 ### `list`
 Вывести список всех протестированных конфигураций, отсортированных по рейтингу.
 
+**Колонки вывода:**
+| Колонка | Описание |
+|---------|----------|
+| `Rank` | Позиция в рейтинге |
+| `Name` | Имя конфигурации |
+| `Score` | Процент успешных тестов (0-100) |
+| `Tests` | Пройдено/Всего тестов |
+| `Ping` | Средний пинг (мс) |
+| `Speed` | Скорость скачивания (Mbps) |
+| `Cyc` | Цикл генерации (1, 2 или 3) |
+
+**Сортировка:**
+1. По убыванию Score
+2. При равном Score — по возрастанию Ping (меньше = лучше)
+
 **Пример:**
 ```cmd
 zapret-optimizer.exe list
@@ -94,11 +123,15 @@ zapret-optimizer.exe list
 
 **Пример вывода:**
 ```
-Rank  Score   Config
-#1    95.2%   cycle-3/combo_general_fake_tls.bat
-#2    92.8%   cycle-2/mutant_general_5.bat
-#3    89.5%   cycle-1/general.bat
+=== All Tested Configs (by score) ===
+Rank  Name                    Score   Tests   Ping    Speed     Cyc
+--------------------------------------------------------------------
+1     combo_general_mut_3     98.5    15/15   45ms    12.5M     3   *
+2     mutant_general_5        98.5    15/15   78ms    8.2M      2
+3     general                 96.0    14/15   52ms    10.1M     1
 ```
+
+* `*` — отмечен текущий лучший конфиг
 
 ---
 
@@ -324,6 +357,46 @@ zapret-optimizer.exe optimize --base-dir D:\zapret
 
 ## 📊 Типичные сценарии использования
 
+### `install-service`
+Установить автозапуск лучшего конфига при входе в Windows.
+
+**Что делает:**
+- Создает `zapret-service.bat` для запуска
+- Добавляет в реестр автозапуска (HKCU\Software\Microsoft\Windows\CurrentVersion\Run)
+
+**Требования:**
+- Выполнена команда `optimize`
+- Существует best-конфигурация
+
+**Пример:**
+```cmd
+zapret-optimizer.exe install-service
+```
+
+---
+
+### `uninstall-service`
+Удалить автозапуск.
+
+**Пример:**
+```cmd
+zapret-optimizer.exe uninstall-service
+```
+
+---
+
+### `service-status`
+Проверить статус автозапуска.
+
+**Пример:**
+```cmd
+zapret-optimizer.exe service-status
+```
+
+---
+
+## 📋 Сценарии использования
+
 ### Сценарий 1: Полная настройка с нуля
 ```cmd
 :: 1. Инициализация
@@ -375,6 +448,29 @@ zapret-optimizer.exe list
 
 :: Сравниваем топ-2
 zapret-optimizer.exe compare cycle-3/combo_general_fake_tls.bat cycle-2/mutant_general_5.bat
+```
+
+### Сценарий 5: Автозапуск при старте Windows
+```cmd
+:: После оптимизации устанавливаем автозапуск
+zapret-optimizer.exe install-service
+
+:: Проверяем статус
+zapret-optimizer.exe service-status
+
+:: При необходимости удаляем
+zapret-optimizer.exe uninstall-service
+```
+
+### Сценарий 6: Кастомные сайты для тестирования
+```cmd
+:: Создаем файл my_sites.txt:
+:: Yandex = "https://ya.ru"
+:: VK = "https://vk.com"
+:: MySite = "https://example.com"
+
+:: Запускаем оптимизацию с кастомным списком
+zapret-optimizer.exe optimize --sites-file my_sites.txt
 ```
 
 ---

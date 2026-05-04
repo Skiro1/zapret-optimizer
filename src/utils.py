@@ -94,9 +94,73 @@ def get_default_targets() -> dict[str, str]:
     }
 
 
-def load_targets_from_file(zapret_dir: Path) -> dict[str, str]:
-    """Load targets from zapret/utils/targets.txt."""
-    targets_file = zapret_dir / "utils" / "targets.txt"
+def load_targets_from_zapret_lists(zapret_dir: Path, max_targets: int = 15) -> dict[str, str] | None:
+    """Extract test targets from zapret list files (list-general.txt, etc.).
+
+    Args:
+        zapret_dir: Path to zapret directory
+        max_targets: Maximum number of targets to extract
+
+    Returns:
+        Dict of targets or None if lists not found
+    """
+    lists_dir = zapret_dir / "lists"
+    if not lists_dir.exists():
+        return None
+
+    # Priority: list-general.txt has main blocked domains
+    general_list = lists_dir / "list-general.txt"
+    if not general_list.exists():
+        return None
+
+    targets = {}
+    count = 0
+
+    try:
+        with open(general_list, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                # Skip comments and empty lines
+                if not line or line.startswith("#"):
+                    continue
+
+                # Convert domain to testable URL
+                domain = line.lower()
+
+                # Skip wildcard patterns and IPs
+                if "*" in domain or domain.replace(".", "").isdigit():
+                    continue
+
+                # Generate URL from domain
+                if "google" in domain or "youtube" in domain:
+                    # These are often blocked, use https
+                    targets[f"Site_{domain.replace('.', '_')}"] = f"https://{domain}"
+                elif "discord" in domain:
+                    targets[f"Discord_{domain.replace('.', '_')}"] = f"https://{domain}"
+                elif "cloudflare" in domain:
+                    targets[f"CF_{domain.replace('.', '_')}"] = f"https://{domain}"
+                else:
+                    targets[f"Site_{domain.replace('.', '_')}"] = f"https://{domain}"
+
+                count += 1
+                if count >= max_targets:
+                    break
+
+    except Exception as e:
+        print(f"[WARN] Could not load zapret lists: {e}")
+        return None
+
+    return targets if targets else None
+
+
+def load_targets_from_file(zapret_dir: Path, custom_file: Path | None = None) -> dict[str, str]:
+    """Load targets from file.
+
+    Args:
+        zapret_dir: Path to zapret directory (for default targets.txt)
+        custom_file: Optional custom sites file path
+    """
+    targets_file = custom_file if custom_file else (zapret_dir / "utils" / "targets.txt")
     targets = {}
 
     if targets_file.exists():
@@ -112,9 +176,9 @@ def load_targets_from_file(zapret_dir: Path) -> dict[str, str]:
                             val = parts[1].strip().strip('"')
                             targets[key] = val
         except Exception as e:
-            print(f"[WARN] Could not load targets.txt: {e}")
+            print(f"[WARN] Could not load targets from file: {e}")
 
-    return targets if targets else get_default_targets()
+    return targets
 
 
 def print_colored(text: str, color: str = "white") -> None:

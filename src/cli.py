@@ -22,8 +22,9 @@ from .dependency_manager import DependencyManager
 class OptimizerCLI:
     """Main CLI controller for zapret optimizer."""
 
-    def __init__(self, base_dir: Path | None = None):
+    def __init__(self, base_dir: Path | None = None, sites_file: Path | None = None):
         self.base_dir = base_dir or Path.cwd()
+        self.sites_file = sites_file
         self.state = OptimizerState(self.base_dir)
         self.zapret_dir: Path | None = None
         self.tester: ConfigTester | None = None
@@ -98,7 +99,7 @@ class OptimizerCLI:
             return False
 
         if not self.tester:
-            self.tester = ConfigTester(self.zapret_dir)
+            self.tester = ConfigTester(self.zapret_dir, sites_file=self.sites_file)
 
         return True
 
@@ -141,6 +142,8 @@ class OptimizerCLI:
                     "total_tests": result.total_tests,
                     "passed_tests": result.passed_tests,
                     "path": str(dest_path),
+                    "avg_response": sum(result.response_times_ms.values()) / max(1, len(result.response_times_ms)),
+                    "download_speed": result.details.get("download_speed", {}).get("speed_mbps", 0),
                 }
             )
             tested.append(result)
@@ -162,8 +165,12 @@ class OptimizerCLI:
             print_colored("[ERROR] No results from cycle 1", "red")
             return False
 
-        # Sort by score
-        sorted_results = sorted(cycle1_results, key=lambda r: r["score"], reverse=True)
+        # Sort by score (descending), then by avg_response (ascending) as tie-breaker
+        sorted_results = sorted(
+            cycle1_results,
+            key=lambda r: (r["score"], -r.get("details", {}).get("avg_response", float('inf'))),
+            reverse=True
+        )
         top_count = max(3, len(sorted_results) // 2)
         top_results = sorted_results[:top_count]
 
@@ -212,6 +219,8 @@ class OptimizerCLI:
                     "total_tests": result.total_tests,
                     "passed_tests": result.passed_tests,
                     "path": str(bat_path),
+                    "avg_response": sum(result.response_times_ms.values()) / max(1, len(result.response_times_ms)),
+                    "download_speed": result.details.get("download_speed", {}).get("speed_mbps", 0),
                 }
             )
 
@@ -275,6 +284,8 @@ class OptimizerCLI:
                     "total_tests": result.total_tests,
                     "passed_tests": result.passed_tests,
                     "path": str(bat_path),
+                    "avg_response": sum(result.response_times_ms.values()) / max(1, len(result.response_times_ms)),
+                    "download_speed": result.details.get("download_speed", {}).get("speed_mbps", 0),
                 }
             )
 
@@ -443,15 +454,23 @@ class OptimizerCLI:
             return 0
 
         print_colored("=== All Tested Configs (by score) ===", "cyan")
-        print_colored(f"{'Rank':<6}{'Name':<30}{'Score':<10}{'Cycle':<8}", "gray")
-        print_colored("-" * 60, "gray")
+        print_colored(f"{'Rank':<4}{'Name':<24}{'Score':<7}{'Tests':<7}{'Ping':<8}{'Speed':<10}{'Cyc':<4}", "gray")
+        print_colored("-" * 70, "gray")
 
         for i, config in enumerate(configs[:30], 1):  # Show top 30
-            name = config["name"][:28]
+            name = config["name"][:22]
             score = f"{config['score']:.1f}"
             cycle = config.get("cycle", "?")
+            details = config.get("details", {})
+            passed = details.get("passed_tests", 0)
+            total = details.get("total_tests", 0)
+            avg_resp = details.get("avg_response", 0)
+            dl_speed = details.get("download_speed", 0)
+            tests_str = f"{passed}/{total}" if total > 0 else "N/A"
+            ping_str = f"{avg_resp:.0f}ms" if avg_resp > 0 else "N/A"
+            speed_str = f"{dl_speed:.1f}M" if dl_speed > 0 else "N/A"
             marker = " *" if i == 1 else ""
-            print_colored(f"{i:<6}{name:<30}{score:<10}{cycle:<8}{marker}", "white")
+            print_colored(f"{i:<4}{name:<24}{score:<7}{tests_str:<7}{ping_str:<8}{speed_str:<10}{cycle:<4}{marker}", "white")
 
         if len(configs) > 30:
             print_colored(f"... and {len(configs) - 30} more", "gray")
@@ -616,6 +635,132 @@ class OptimizerCLI:
 
         print_colored("\n[LINK] Click to connect in Telegram:", "cyan")
         print_colored(f"       {self.tg_proxy.get_connect_link()}", "white")
+
+        return 0
+
+    # === Auto-start Service Commands ===
+
+    def _get_service_bat_path(self) -> Path:
+        """Get path for auto-start service bat file."""
+        return self.base_dir / "zapret-service.bat"
+
+    def _get_registry_key(self) -> str:
+        """Get registry key path for auto-start."""
+        return r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+    def cmd_install_service(self) -> int:
+        """Install auto-start service for best config."""
+        print_colored("=== Install Auto-Start Service ===", "cyan")
+
+        # Check if optimization was run
+        if not self.state.can_run_best()[0]:
+            print_colored("[ERROR] No best config found. Run 'optimize' first.", "red")
+            return 1
+
+        # Check admin rights
+        if not is_admin():
+            print_colored("[WARN] Admin rights recommended for service installation", "yellow")
+
+        service_bat = self._get_service_bat_path()
+
+        # Create service bat file
+        service_content = f'''@echo off
+:: Auto-start service for zapret-optimizer
+cd /d "{self.base_dir}"
+echo [%date% %time%] Starting zapret service... >> service.log 2>&1
+call "{self.base_dir / "configs" / "cycle-3" / "best.bat"}" >> service.log 2>&1
+'''
+        try:
+            service_bat.write_text(service_content, encoding="utf-8")
+            print_colored(f"[OK] Created service file: {service_bat}", "green")
+        except Exception as e:
+            print_colored(f"[ERROR] Failed to create service file: {e}", "red")
+            return 1
+
+        # Add to registry auto-start
+        try:
+            import winreg
+            key_path = self._get_registry_key()
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE) as key:
+                winreg.SetValueEx(key, "ZapretOptimizer", 0, winreg.REG_SZ, f'"{service_bat}"')
+            print_colored("[OK] Added to Windows auto-start (Current User)", "green")
+        except Exception as e:
+            print_colored(f"[WARN] Could not add to registry: {e}", "yellow")
+            print_colored("     Service file created but not added to auto-start.", "gray")
+            print_colored(f"     Run manually: {service_bat}", "gray")
+            return 0
+
+        print_colored("\n[OK] Service installed successfully!", "green")
+        print_colored("     Best config will auto-start on Windows login.", "gray")
+        return 0
+
+    def cmd_uninstall_service(self) -> int:
+        """Remove auto-start service."""
+        print_colored("=== Uninstall Auto-Start Service ===", "cyan")
+
+        service_bat = self._get_service_bat_path()
+
+        # Remove from registry
+        removed_registry = False
+        try:
+            import winreg
+            key_path = self._get_registry_key()
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE) as key:
+                try:
+                    winreg.DeleteValue(key, "ZapretOptimizer")
+                    print_colored("[OK] Removed from Windows auto-start", "green")
+                    removed_registry = True
+                except FileNotFoundError:
+                    print_colored("[INFO] Service was not in auto-start", "gray")
+        except Exception as e:
+            print_colored(f"[WARN] Could not remove from registry: {e}", "yellow")
+
+        # Remove service bat file
+        if service_bat.exists():
+            try:
+                service_bat.unlink()
+                print_colored(f"[OK] Removed service file: {service_bat}", "green")
+            except Exception as e:
+                print_colored(f"[WARN] Could not remove service file: {e}", "yellow")
+        else:
+            print_colored("[INFO] Service file not found", "gray")
+
+        if removed_registry:
+            print_colored("\n[OK] Service uninstalled successfully!", "green")
+        return 0
+
+    def cmd_service_status(self) -> int:
+        """Check auto-start service status."""
+        print_colored("=== Auto-Start Service Status ===", "cyan")
+
+        service_bat = self._get_service_bat_path()
+
+        # Check service file
+        if service_bat.exists():
+            print_colored(f"[OK] Service file exists: {service_bat}", "green")
+        else:
+            print_colored("[INFO] Service file not found", "gray")
+
+        # Check registry
+        try:
+            import winreg
+            key_path = self._get_registry_key()
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ) as key:
+                try:
+                    value, _ = winreg.QueryValueEx(key, "ZapretOptimizer")
+                    print_colored("[OK] Registered for auto-start", "green")
+                    print_colored(f"     Command: {value}", "gray")
+                except FileNotFoundError:
+                    print_colored("[INFO] Not registered for auto-start", "gray")
+        except Exception as e:
+            print_colored(f"[WARN] Could not check registry: {e}", "yellow")
+
+        # Check if best config exists
+        best_bat = self.base_dir / "configs" / "cycle-3" / "best.bat"
+        if best_bat.exists():
+            print_colored(f"[OK] Best config exists: {best_bat}", "green")
+        else:
+            print_colored("[WARN] Best config not found. Run 'optimize' first.", "yellow")
 
         return 0
 
