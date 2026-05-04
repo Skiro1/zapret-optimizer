@@ -3,10 +3,6 @@
 ## [1.0.1] - 2026-05-04
 
 ### Added
-- **Auto-start service commands**: `install-service`, `uninstall-service`, `service-status`
-  - Automatically start best config on Windows login
-  - Uses registry (HKCU\Software\Microsoft\Windows\CurrentVersion\Run)
-
 - **Tie-breaker sorting**: When score is equal, config with lower ping wins
   - Updated `list` command shows Ping column for detailed comparison
 

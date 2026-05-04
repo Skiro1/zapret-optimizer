@@ -36,10 +36,6 @@ Commands:
 
   warp-generate  Generate WARP AmneziaVPN config file
 
-  install-service   Install auto-start service for best config
-  uninstall-service Remove auto-start service
-  service-status    Check auto-start service status
-
   deps-status    Check which dependencies are installed
   download-deps  Download missing dependencies
 
@@ -57,9 +53,6 @@ Examples:
   %(prog)s test-telegram
   %(prog)s warp-generate --method api
   %(prog)s warp-generate --method fallback
-  %(prog)s install-service
-  %(prog)s uninstall-service
-  %(prog)s service-status
   %(prog)s deps-status
 
   # Custom sites file
@@ -75,7 +68,6 @@ Examples:
                  "install-proxy", "start-proxy", "stop-proxy", "status-proxy",
                  "configure-proxy", "test-telegram",
                  "warp-generate",
-                 "install-service", "uninstall-service", "service-status",
                  "deps-status", "download-deps"],
         help="Command to execute"
     )
@@ -181,9 +173,6 @@ Examples:
         "configure-proxy": lambda: cli.cmd_configure_proxy(args.port, args.secret, None),
         "test-telegram": cli.cmd_test_telegram,
         "warp-generate": lambda: cli.cmd_warp_generate(args.method, args.force),
-        "install-service": cli.cmd_install_service,
-        "uninstall-service": cli.cmd_uninstall_service,
-        "service-status": cli.cmd_service_status,
         "deps-status": cli.cmd_deps_status,
         "download-deps": lambda: cli.cmd_download_deps(
             categories=(

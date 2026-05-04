@@ -354,46 +354,6 @@ zapret-optimizer.exe optimize --base-dir D:\zapret
 
 ## 📊 Типичные сценарии использования
 
-### `install-service`
-Установить автозапуск лучшего конфига при входе в Windows.
-
-**Что делает:**
-- Создает `zapret-service.bat` для запуска
-- Добавляет в реестр автозапуска (HKCU\Software\Microsoft\Windows\CurrentVersion\Run)
-
-**Требования:**
-- Выполнена команда `optimize`
-- Существует best-конфигурация
-
-**Пример:**
-```cmd
-zapret-optimizer.exe install-service
-```
-
----
-
-### `uninstall-service`
-Удалить автозапуск.
-
-**Пример:**
-```cmd
-zapret-optimizer.exe uninstall-service
-```
-
----
-
-### `service-status`
-Проверить статус автозапуска.
-
-**Пример:**
-```cmd
-zapret-optimizer.exe service-status
-```
-
----
-
-## 📋 Сценарии использования
-
 ### Сценарий 1: Полная настройка с нуля
 ```cmd
 :: 1. Инициализация
@@ -447,19 +407,7 @@ zapret-optimizer.exe list
 zapret-optimizer.exe compare cycle-3/combo_general_fake_tls.bat cycle-2/mutant_general_5.bat
 ```
 
-### Сценарий 5: Автозапуск при старте Windows
-```cmd
-:: После оптимизации устанавливаем автозапуск
-zapret-optimizer.exe install-service
-
-:: Проверяем статус
-zapret-optimizer.exe service-status
-
-:: При необходимости удаляем
-zapret-optimizer.exe uninstall-service
-```
-
-### Сценарий 6: Кастомные сайты для тестирования
+### Сценарий 5: Кастомные сайты для тестирования
 ```cmd
 :: Создаем файл my_sites.txt:
 :: Yandex = "https://ya.ru"
