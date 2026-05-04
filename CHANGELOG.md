@@ -6,13 +6,9 @@
 - **Auto-start service commands**: `install-service`, `uninstall-service`, `service-status`
   - Automatically start best config on Windows login
   - Uses registry (HKCU\Software\Microsoft\Windows\CurrentVersion\Run)
-  
-- **Download speed test**: Tests ~1MB download from Cloudflare during optimization
-  - Shows speed in Mbps for each config
-  - Helps choose between configs with same score
 
 - **Tie-breaker sorting**: When score is equal, config with lower ping wins
-  - Updated `list` command shows Ping and Speed columns
+  - Updated `list` command shows Ping column for detailed comparison
   
 - **Zapret lists integration**: Automatically uses domains from `zapret/lists/list-general.txt`
   - Priority: custom file → zapret lists → targets.txt → defaults

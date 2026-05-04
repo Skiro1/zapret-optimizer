@@ -116,7 +116,11 @@ class ConfigTester:
         return results
 
     def _test_speed(self, url: str = "https://speed.cloudflare.com/__down?bytes=1000000") -> dict[str, Any]:
-        """Test download speed from a URL (downloads ~1MB test file)."""
+        """Test download speed from a URL (downloads ~1MB test file).
+
+        Note: This test runs WITHOUT proxy to measure baseline speed.
+        The actual zapret speed depends on many factors and varies.
+        """
         result = {
             "success": False,
             "speed_mbps": 0,
@@ -124,8 +128,12 @@ class ConfigTester:
             "bytes_downloaded": 0,
         }
 
+        # Try to download through winws - use smaller file for faster test
         try:
             start_time = time.time()
+            # Use 100KB file for faster test, try with pre-resolve to force through winws
+            test_url = url if url else "https://speed.cloudflare.com/__down?bytes=100000"
+
             speed_result = subprocess.run(
                 [
                     "curl.exe",
@@ -133,12 +141,13 @@ class ConfigTester:
                     "-w", "%{size_download}\t%{time_total}",
                     "-L",  # Follow redirects
                     "-s",  # Silent
-                    "-m", str(self.timeout * 2),  # Longer timeout for download
-                    url,
+                    "--max-time", str(self.timeout * 3),  # Longer timeout
+                    "--connect-timeout", str(self.timeout),
+                    test_url,
                 ],
                 capture_output=True,
                 text=True,
-                timeout=self.timeout * 2 + 5
+                timeout=self.timeout * 3 + 5
             )
             elapsed = time.time() - start_time
 
@@ -149,13 +158,21 @@ class ConfigTester:
                     bytes_downloaded = int(bytes_str) if bytes_str.isdigit() else 0
                     download_time = float(time_str) if time_str else elapsed
 
-                    if bytes_downloaded > 0 and download_time > 0:
+                    if bytes_downloaded > 10000 and download_time > 0:  # At least 10KB downloaded
                         speed_mbps = (bytes_downloaded * 8) / (download_time * 1000000)
                         result["success"] = True
                         result["speed_mbps"] = round(speed_mbps, 2)
                         result["time_ms"] = round(download_time * 1000, 0)
                         result["bytes_downloaded"] = bytes_downloaded
+                    else:
+                        result["error"] = f"Too few bytes: {bytes_downloaded}"
+                else:
+                    result["error"] = f"Invalid output format: {output[:50]}"
+            else:
+                result["error"] = f"curl failed: code {speed_result.returncode}"
 
+        except subprocess.TimeoutExpired:
+            result["error"] = "Speed test timeout"
         except Exception as e:
             result["error"] = str(e)
 
@@ -287,8 +304,9 @@ class ConfigTester:
                 ) / 3
                 all_details[target_name] = url_results
 
-        # Run speed test
-        speed_result = self._test_speed()
+        # Speed test disabled - curl.exe doesn't route through winws properly
+        # TODO: Implement proper speed test that uses winws
+        speed_result = {"success": False, "speed_mbps": 0, "error": "Speed test disabled"}
         all_details["download_speed"] = speed_result
 
         # Calculate score (percentage of successful tests)
@@ -304,8 +322,7 @@ class ConfigTester:
         speed_penalty = min(5, avg_response / 200)
         adjusted_score = max(0, score - speed_penalty)
 
-        speed_str = f"{speed_result['speed_mbps']:.1f} Mbps" if speed_result['success'] else "N/A"
-        print(f"    Score: {adjusted_score:.1f} ({passed_tests}/{total_tests} tests, avg {avg_response:.0f}ms, speed: {speed_str})")
+        print(f"    Score: {adjusted_score:.1f} ({passed_tests}/{total_tests} tests, avg {avg_response:.0f}ms)")
 
         # Cleanup
         stop_winws()

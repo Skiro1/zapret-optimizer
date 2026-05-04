@@ -47,7 +47,6 @@ zapret-optimizer.exe init
 
 **Автоматические улучшения:**
 - Использует домены из `zapret/lists/list-general.txt` (если найден)
-- Тестирует скорость скачивания (~1MB с Cloudflare)
 - При равном score выбирает конфиг с меньшим пингом
 
 **Параметры:**
@@ -109,7 +108,6 @@ zapret-optimizer.exe status
 | `Score` | Процент успешных тестов (0-100) |
 | `Tests` | Пройдено/Всего тестов |
 | `Ping` | Средний пинг (мс) |
-| `Speed` | Скорость скачивания (Mbps) |
 | `Cyc` | Цикл генерации (1, 2 или 3) |
 
 **Сортировка:**
@@ -124,11 +122,11 @@ zapret-optimizer.exe list
 **Пример вывода:**
 ```
 === All Tested Configs (by score) ===
-Rank  Name                    Score   Tests   Ping    Speed     Cyc
---------------------------------------------------------------------
-1     combo_general_mut_3     98.5    15/15   45ms    12.5M     3   *
-2     mutant_general_5        98.5    15/15   78ms    8.2M      2
-3     general                 96.0    14/15   52ms    10.1M     1
+Rank  Name                    Score   Tests   Ping      Cyc
+------------------------------------------------------------
+1     combo_general_mut_3     98.5    15/15   45ms      3   *
+2     mutant_general_5        98.5    15/15   78ms      2
+3     general                 96.0    14/15   52ms      1
 ```
 
 * `*` — отмечен текущий лучший конфиг

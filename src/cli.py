@@ -143,7 +143,6 @@ class OptimizerCLI:
                     "passed_tests": result.passed_tests,
                     "path": str(dest_path),
                     "avg_response": sum(result.response_times_ms.values()) / max(1, len(result.response_times_ms)),
-                    "download_speed": result.details.get("download_speed", {}).get("speed_mbps", 0),
                 }
             )
             tested.append(result)
@@ -454,23 +453,21 @@ class OptimizerCLI:
             return 0
 
         print_colored("=== All Tested Configs (by score) ===", "cyan")
-        print_colored(f"{'Rank':<4}{'Name':<24}{'Score':<7}{'Tests':<7}{'Ping':<8}{'Speed':<10}{'Cyc':<4}", "gray")
+        print_colored(f"{'Rank':<4}{'Name':<28}{'Score':<7}{'Tests':<7}{'Ping':<10}{'Cyc':<4}", "gray")
         print_colored("-" * 70, "gray")
 
         for i, config in enumerate(configs[:30], 1):  # Show top 30
-            name = config["name"][:22]
+            name = config["name"][:26]
             score = f"{config['score']:.1f}"
             cycle = config.get("cycle", "?")
             details = config.get("details", {})
             passed = details.get("passed_tests", 0)
             total = details.get("total_tests", 0)
             avg_resp = details.get("avg_response", 0)
-            dl_speed = details.get("download_speed", 0)
             tests_str = f"{passed}/{total}" if total > 0 else "N/A"
             ping_str = f"{avg_resp:.0f}ms" if avg_resp > 0 else "N/A"
-            speed_str = f"{dl_speed:.1f}M" if dl_speed > 0 else "N/A"
             marker = " *" if i == 1 else ""
-            print_colored(f"{i:<4}{name:<24}{score:<7}{tests_str:<7}{ping_str:<8}{speed_str:<10}{cycle:<4}{marker}", "white")
+            print_colored(f"{i:<4}{name:<28}{score:<7}{tests_str:<7}{ping_str:<10}{cycle:<4}{marker}", "white")
 
         if len(configs) > 30:
             print_colored(f"... and {len(configs) - 30} more", "gray")
