@@ -9,9 +9,6 @@
 
 - **Tie-breaker sorting**: When score is equal, config with lower ping wins
   - Updated `list` command shows Ping column for detailed comparison
-  
-- **Zapret lists integration**: Automatically uses domains from `zapret/lists/list-general.txt`
-  - Priority: custom file → zapret lists → targets.txt → defaults
 
 - **Custom sites file support**: `--sites-file` parameter for `optimize` command
   - Create your own list of sites to test

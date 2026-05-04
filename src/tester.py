@@ -6,7 +6,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
-from .utils import stop_winws, load_targets_from_file, get_default_targets, load_targets_from_zapret_lists
+from .utils import stop_winws, load_targets_from_file, get_default_targets
 
 
 @dataclass
@@ -33,9 +33,7 @@ class ConfigTester:
     def _load_targets(self) -> dict[str, str]:
         """Load test targets with priority:
         1. Custom sites file (if provided)
-        2. Zapret list files (list-general.txt, etc.)
-        3. Zapret's targets.txt
-        4. Built-in defaults
+        2. Built-in defaults
         """
         # First priority: custom sites file
         if self.sites_file and self.sites_file.exists():
@@ -43,18 +41,6 @@ class ConfigTester:
             if targets:
                 print(f"[INFO] Using custom sites file: {self.sites_file}")
                 return targets
-
-        # Second priority: zapret list files
-        targets = load_targets_from_zapret_lists(self.zapret_dir)
-        if targets:
-            print(f"[INFO] Using zapret list-general.txt ({len(targets)} domains)")
-            return targets
-
-        # Third priority: zapret's targets.txt
-        targets = load_targets_from_file(self.zapret_dir)
-        if targets:
-            print(f"[INFO] Using zapret targets.txt")
-            return targets
 
         # Fallback to built-in defaults
         print(f"[INFO] Using built-in default targets")

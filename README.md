@@ -149,7 +149,6 @@ python main.py init
 zapret-optimizer.exe init
 
 :: Оптимизация (займет 10-30 минут)
-:: Автоматически использует домены из zapret/lists/list-general.txt
 zapret-optimizer.exe optimize
 
 :: Или с кастомным списком сайтов:
