@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.0.1] - 2024-05-04
+## [1.0.1] - 2026-05-04
 
 ### Added
 - **Auto-start service commands**: `install-service`, `uninstall-service`, `service-status`
@@ -18,7 +18,7 @@
 - Enhanced `list` command output with detailed statistics
 - Improved target loading priority system
 
-## [1.0.0] - 2024-05-03
+## [1.0.0] - 2026-05-03
 
 ### Added
 - Initial release
