@@ -637,16 +637,16 @@ class OptimizerCLI:
 
     # === Auto-start Service Commands ===
 
-    def _get_service_bat_path(self) -> Path:
-        """Get path for auto-start service bat file."""
-        return self.base_dir / "zapret-service.bat"
+    def _get_service_vbs_path(self) -> Path:
+        """Get path for hidden VBS launcher."""
+        return self.base_dir / "zapret-service.vbs"
 
-    def _get_registry_key(self) -> str:
-        """Get registry key path for auto-start."""
-        return r"Software\Microsoft\Windows\CurrentVersion\Run"
+    def _get_task_name(self) -> str:
+        """Get Task Scheduler task name."""
+        return "ZapretOptimizer"
 
     def cmd_install_service(self) -> int:
-        """Install auto-start service for best config."""
+        """Install auto-start service using Task Scheduler (hidden, like zapret)."""
         print_colored("=== Install Auto-Start Service ===", "cyan")
 
         # Check if optimization was run
@@ -654,111 +654,189 @@ class OptimizerCLI:
             print_colored("[ERROR] No best config found. Run 'optimize' first.", "red")
             return 1
 
-        # Check admin rights
-        if not is_admin():
-            print_colored("[WARN] Admin rights recommended for service installation", "yellow")
-
-        service_bat = self._get_service_bat_path()
-
-        # Create service bat file
-        service_content = f'''@echo off
-:: Auto-start service for zapret-optimizer
-cd /d "{self.base_dir}"
-echo [%date% %time%] Starting zapret service... >> service.log 2>&1
-call "{self.base_dir / "configs" / "cycle-3" / "best.bat"}" >> service.log 2>&1
-'''
-        try:
-            service_bat.write_text(service_content, encoding="utf-8")
-            print_colored(f"[OK] Created service file: {service_bat}", "green")
-        except Exception as e:
-            print_colored(f"[ERROR] Failed to create service file: {e}", "red")
+        best_path = self.state.configs_dir / "best.bat"
+        if not best_path.exists():
+            print_colored(f"[ERROR] Best config not found at {best_path}", "red")
             return 1
 
-        # Add to registry auto-start
+        zapret_dir = self.zapret_dir or find_zapret_dir(self.base_dir)
+        if not zapret_dir:
+            print_colored("[ERROR] Zapret directory not found", "red")
+            return 1
+
+        service_vbs = self._get_service_vbs_path()
+        task_name = self._get_task_name()
+
+        # Create VBS for hidden execution (no console window)
+        vbs_content = f'''Set WshShell = CreateObject("WScript.Shell")
+WshShell.CurrentDirectory = "{zapret_dir}"
+WshShell.Run "cmd /c \"""{best_path}""\"", 0, True
+Set WshShell = Nothing
+'''
         try:
-            import winreg
-            key_path = self._get_registry_key()
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE) as key:
-                winreg.SetValueEx(key, "ZapretOptimizer", 0, winreg.REG_SZ, f'"{service_bat}"')
-            print_colored("[OK] Added to Windows auto-start (Current User)", "green")
+            service_vbs.write_text(vbs_content, encoding="utf-8")
+            print_colored(f"[OK] Created hidden launcher: {service_vbs}", "green")
         except Exception as e:
-            print_colored(f"[WARN] Could not add to registry: {e}", "yellow")
-            print_colored("     Service file created but not added to auto-start.", "gray")
-            print_colored(f"     Run manually: {service_bat}", "gray")
+            print_colored(f"[ERROR] Failed to create VBS: {e}", "red")
+            return 1
+
+        # Create Task Scheduler task (hidden, on logon, highest privileges)
+        try:
+            import subprocess as sp
+            result = sp.run(
+                [
+                    "schtasks", "/create",
+                    "/tn", task_name,
+                    "/tr", f'wscript.exe "{service_vbs}"',
+                    "/sc", "onlogon",
+                    "/rl", "highest",
+                    "/f"
+                ],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                print_colored("[OK] Added to Task Scheduler (hidden, on logon, admin)", "green")
+            else:
+                print_colored(f"[WARN] Task Scheduler: {result.stderr.strip()}", "yellow")
+        except Exception as e:
+            print_colored(f"[WARN] Could not add to Task Scheduler: {e}", "yellow")
+            print_colored("     Service file created but not scheduled.", "gray")
             return 0
 
+        # Start immediately in background
+        try:
+            import subprocess as sp
+            sp.Popen(
+                ["wscript.exe", str(service_vbs)],
+                stdout=sp.DEVNULL, stderr=sp.DEVNULL,
+                creationflags=sp.CREATE_NO_WINDOW
+            )
+            print_colored("[OK] Started best config in background (hidden)", "green")
+        except Exception as e:
+            print_colored(f"[WARN] Could not start now: {e}", "yellow")
+
         print_colored("\n[OK] Service installed successfully!", "green")
-        print_colored("     Best config will auto-start on Windows login.", "gray")
+        print_colored("     Best config is RUNNING and will auto-start on login.", "gray")
         return 0
 
     def cmd_uninstall_service(self) -> int:
-        """Remove auto-start service."""
+        """Remove auto-start service from Task Scheduler."""
         print_colored("=== Uninstall Auto-Start Service ===", "cyan")
 
-        service_bat = self._get_service_bat_path()
+        task_name = self._get_task_name()
+        service_vbs = self._get_service_vbs_path()
+        service_bat = self.base_dir / "zapret-service.bat"
 
-        # Remove from registry
-        removed_registry = False
+        # Remove from Task Scheduler
+        removed_task = False
+        try:
+            import subprocess as sp
+            result = sp.run(
+                ["schtasks", "/delete", "/tn", task_name, "/f"],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                print_colored("[OK] Removed from Task Scheduler", "green")
+                removed_task = True
+            elif "does not exist" in result.stderr.lower():
+                print_colored("[INFO] Task was not scheduled", "gray")
+            else:
+                print_colored(f"[WARN] Task Scheduler: {result.stderr.strip()}", "yellow")
+        except Exception as e:
+            print_colored(f"[WARN] Could not remove task: {e}", "yellow")
+
+        # Also clean up old registry entry if present
         try:
             import winreg
-            key_path = self._get_registry_key()
+            key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE) as key:
                 try:
                     winreg.DeleteValue(key, "ZapretOptimizer")
-                    print_colored("[OK] Removed from Windows auto-start", "green")
-                    removed_registry = True
+                    print_colored("[OK] Cleaned up old registry entry", "green")
                 except FileNotFoundError:
-                    print_colored("[INFO] Service was not in auto-start", "gray")
-        except Exception as e:
-            print_colored(f"[WARN] Could not remove from registry: {e}", "yellow")
+                    pass
+        except Exception:
+            pass
 
-        # Remove service bat file
-        if service_bat.exists():
-            try:
-                service_bat.unlink()
-                print_colored(f"[OK] Removed service file: {service_bat}", "green")
-            except Exception as e:
-                print_colored(f"[WARN] Could not remove service file: {e}", "yellow")
-        else:
-            print_colored("[INFO] Service file not found", "gray")
+        # Remove service files
+        for f in [service_vbs, service_bat]:
+            if f.exists():
+                try:
+                    f.unlink()
+                    print_colored(f"[OK] Removed: {f}", "green")
+                except Exception as e:
+                    print_colored(f"[WARN] Could not remove {f}: {e}", "yellow")
 
-        if removed_registry:
+        # Kill any running winws
+        try:
+            from .utils import stop_winws
+            if stop_winws():
+                print_colored("[OK] Stopped winws.exe", "green")
+        except Exception:
+            pass
+
+        if removed_task:
             print_colored("\n[OK] Service uninstalled successfully!", "green")
         return 0
 
     def cmd_service_status(self) -> int:
-        """Check auto-start service status."""
+        """Check auto-start service status (Task Scheduler)."""
         print_colored("=== Auto-Start Service Status ===", "cyan")
 
-        service_bat = self._get_service_bat_path()
+        task_name = self._get_task_name()
+        service_vbs = self._get_service_vbs_path()
+        best_bat = self.state.configs_dir / "best.bat"
 
-        # Check service file
-        if service_bat.exists():
-            print_colored(f"[OK] Service file exists: {service_bat}", "green")
-        else:
-            print_colored("[INFO] Service file not found", "gray")
-
-        # Check registry
+        # Check Task Scheduler
+        task_exists = False
         try:
-            import winreg
-            key_path = self._get_registry_key()
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ) as key:
-                try:
-                    value, _ = winreg.QueryValueEx(key, "ZapretOptimizer")
-                    print_colored("[OK] Registered for auto-start", "green")
-                    print_colored(f"     Command: {value}", "gray")
-                except FileNotFoundError:
-                    print_colored("[INFO] Not registered for auto-start", "gray")
+            import subprocess as sp
+            result = sp.run(
+                ["schtasks", "/query", "/tn", task_name, "/fo", "list", "/v"],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                task_exists = True
+                print_colored(f"[OK] Task '{task_name}' exists in Task Scheduler", "green")
+                # Extract schedule info
+                for line in result.stdout.splitlines():
+                    if "Task State" in line:
+                        state = line.split(":", 1)[1].strip()
+                        print_colored(f"     State: {state}", "gray")
+                    elif "Run as User" in line:
+                        user = line.split(":", 1)[1].strip()
+                        print_colored(f"     User: {user}", "gray")
+            else:
+                print_colored("[INFO] Task not found in Task Scheduler", "gray")
         except Exception as e:
-            print_colored(f"[WARN] Could not check registry: {e}", "yellow")
+            print_colored(f"[WARN] Could not query Task Scheduler: {e}", "yellow")
+
+        # Check VBS launcher
+        if service_vbs.exists():
+            print_colored(f"[OK] Hidden launcher: {service_vbs}", "green")
+        else:
+            print_colored("[INFO] Hidden launcher not found", "gray")
 
         # Check if best config exists
-        best_bat = self.base_dir / "configs" / "cycle-3" / "best.bat"
         if best_bat.exists():
-            print_colored(f"[OK] Best config exists: {best_bat}", "green")
+            print_colored(f"[OK] Best config: {best_bat}", "green")
         else:
             print_colored("[WARN] Best config not found. Run 'optimize' first.", "yellow")
 
+        # Check if winws is running
+        try:
+            import subprocess as sp
+            ps = sp.run(["tasklist", "/fi", "imagename eq winws.exe"],
+                        capture_output=True, text=True)
+            if "winws.exe" in ps.stdout:
+                print_colored("[OK] winws.exe is RUNNING", "green")
+            else:
+                print_colored("[INFO] winws.exe is NOT running", "gray")
+        except Exception:
+            pass
+
+        if task_exists:
+            print_colored("\n[OK] Service is installed and configured.", "green")
         return 0
 
     # === WARP Config Generation ===
