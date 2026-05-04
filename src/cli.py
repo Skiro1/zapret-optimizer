@@ -664,13 +664,25 @@ class OptimizerCLI:
             print_colored("[ERROR] Zapret directory not found", "red")
             return 1
 
+        # best.bat uses paths relative to its own dir (cd /d "%~dp0" then bin\, lists\)
+        # It must live inside zapret dir for those paths to resolve.
+        zapret_best = zapret_dir / "zapret-optimizer-best.bat"
+        try:
+            import shutil
+            shutil.copy2(best_path, zapret_best)
+            print_colored(f"[OK] Copied best.bat to zapret dir: {zapret_best}", "green")
+        except Exception as e:
+            print_colored(f"[ERROR] Failed to copy best.bat: {e}", "red")
+            return 1
+
         service_vbs = self._get_service_vbs_path()
         task_name = self._get_task_name()
 
         # Create VBS for hidden execution (no console window)
+        # In VBS, quotes inside strings are escaped by doubling: " becomes ""
         vbs_content = f'''Set WshShell = CreateObject("WScript.Shell")
 WshShell.CurrentDirectory = "{zapret_dir}"
-WshShell.Run "cmd /c \"""{best_path}""\"", 0, True
+WshShell.Run "cmd /c ""{zapret_best}""", 0, True
 Set WshShell = Nothing
 '''
         try:
@@ -758,8 +770,12 @@ Set WshShell = Nothing
         except Exception:
             pass
 
-        # Remove service files
-        for f in [service_vbs, service_bat]:
+        # Remove service files and zapret-best copy
+        zapret_dir = self.zapret_dir or find_zapret_dir(self.base_dir)
+        to_remove = [service_vbs, service_bat]
+        if zapret_dir:
+            to_remove.append(zapret_dir / "zapret-optimizer-best.bat")
+        for f in to_remove:
             if f.exists():
                 try:
                     f.unlink()
