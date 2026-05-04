@@ -678,12 +678,11 @@ class OptimizerCLI:
         service_vbs = self._get_service_vbs_path()
         task_name = self._get_task_name()
 
-        # Create VBS for hidden execution (no console window)
-        # In VBS, quotes inside strings are escaped by doubling: " becomes ""
-        vbs_content = f'''Set WshShell = CreateObject("WScript.Shell")
-WshShell.CurrentDirectory = "{zapret_dir}"
-WshShell.Run "cmd /c ""{zapret_best}""", 0, True
-Set WshShell = Nothing
+        # Create VBS for hidden execution (no console window, no taskbar)
+        # ShellExecute with 0 = SW_HIDE (completely invisible)
+        vbs_content = f'''Set objShell = CreateObject("Shell.Application")
+objShell.ShellExecute "cmd.exe", "/c ""{zapret_best}""", "{zapret_dir}", "", 0
+Set objShell = Nothing
 '''
         try:
             service_vbs.write_text(vbs_content, encoding="utf-8")
@@ -718,7 +717,7 @@ Set WshShell = Nothing
         # Start immediately in background
         try:
             import subprocess as sp
-            sp.Popen(
+            sp.run(
                 ["wscript.exe", str(service_vbs)],
                 stdout=sp.DEVNULL, stderr=sp.DEVNULL,
                 creationflags=sp.CREATE_NO_WINDOW
